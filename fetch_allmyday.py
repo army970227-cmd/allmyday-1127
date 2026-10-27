@@ -1,69 +1,33 @@
-import requests
-import csv
-import os
-from datetime import datetime, timezone, timedelta
+name: fetch-allmyday-sales
 
-PRODUCTS = [
-    {
-        "name": "藝聲 YESUNG FANSIGN",
-        "route": "46756ad6feef74d93",
-    },
-]
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
 
-BASE = "https://allmyday.com.tw/api/product/item/"
-CSV_PATH = "allmyday_yesung.csv"
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                  "AppleWebKit/605.1.15 (KHTML, like Gecko) "
-                  "Version/26.6.1 Safari/605.1.15",
-    "Accept": "application/json",
-}
+permissions:
+  contents: write
 
-def fetch(route):
-    url = BASE + route
-    r = requests.get(url, headers=HEADERS, timeout=20)
-    r.raise_for_status()
-    return r.json()
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-def parse(name, data):
-    tw = timezone(timedelta(hours=8))
-    now = datetime.now(tw).strftime("%Y-%m-%d %H:%M:%S")
-    p = data.get("data", {}).get("prod", {})
-    if not p:
-        return None
-    return {
-        "time": now,
-        "name": name,
-        "title": p.get("title", ""),
-        "sales_amount": p.get("sales_amount", 0),
-        "quantity": p.get("quantity", 0),
-        "show_sales_amount": p.get("show_sales_amount", 0),
-        "pre_order": p.get("pre_order", 0),
-        "delisting_at": p.get("delisting_at", ""),
-    }
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-def main():
-    rows = []
-    for item in PRODUCTS:
-        try:
-            data = fetch(item["route"])
-            row = parse(item["name"], data)
-            if row:
-                rows.append(row)
-                print(row)
-        except Exception as e:
-            print(f"[ERROR] {item['name']}: {e}")
+      - name: Install deps
+        run: pip install requests
 
-    if not rows:
-        print("沒有資料，結束")
-        return
+      - name: Run fetcher
+        run: python fetch_allmyday.py
 
-    new_file = not os.path.exists(CSV_PATH)
-    with open(CSV_PATH, "a", newline="", encoding="utf-8-sig") as f:
-        w = csv.DictWriter(f, fieldnames=rows[0].keys())
-        if new_file:
-            w.writeheader()
-        w.writerows(rows)
-
-if __name__ == "__main__":
-    main()
+      - name: Commit CSV
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: update sales $(date -u +%FT%TZ)" || echo "no changes"
+          git push
