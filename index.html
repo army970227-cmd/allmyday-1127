@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>應募銷量記錄</title>
+<style>
+  :root {
+    --bg: #0f1115; --card: #171a21; --line: #262b36; --text: #e6e8ee;
+    --muted: #8b93a3; --green: #4ade80; --blue: #60a5fa; --red: #f87171;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, sans-serif; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 12px; margin-bottom: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 18px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .card .label { color: var(--muted); font-size: 12px; }
+  .card .value { font-size: 24px; font-weight: 700; margin-top: 6px; }
+  .card .value.green { color: var(--green); }
+  .card .value.blue { color: var(--blue); }
+  .card .value.red { color: var(--red); }
+  .section-title { font-size: 14px; color: var(--muted); margin: 20px 0 8px; }
+  table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; font-size: 13px; }
+  th, td { padding: 9px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+  th { background: #1d2129; color: var(--muted); font-weight: 600; font-size: 12px; }
+  tr:last-child td { border-bottom: none; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .delta-up { color: var(--green); }
+  .delta-flat { color: var(--muted); }
+  .status { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; }
+  .status.ok { background: #12321f; color: var(--green); }
+  .status.end { background: #321212; color: var(--red); }
+  .footer { color: var(--muted); font-size: 11px; margin-top: 16px; line-height: 1.6; }
+  .refresh { margin-top: 12px; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<h1 id="title">應募銷量記錄</h1>
+<div class="sub" id="sub">載入中…</div>
+
+<div class="grid">
+  <div class="card">
+    <div class="label">目前銷量</div>
+    <div class="value green" id="sales">-</div>
+  </div>
+  <div class="card">
+    <div class="label">距上次增加</div>
+    <div class="value blue" id="delta">-</div>
+  </div>
+  <div class="card">
+    <div class="label">記錄筆數</div>
+    <div class="value" id="count">-</div>
+  </div>
+  <div class="card">
+    <div class="label">應募狀態</div>
+    <div class="value" id="status" style="font-size:16px">-</div>
+  </div>
+</div>
+
+<div class="section-title">最近 20 筆記錄</div>
+<table>
+  <thead>
+    <tr>
+      <th>時間</th>
+      <th class="num">銷量</th>
+      <th class="num">增加</th>
+      <th class="num">quantity</th>
+    </tr>
+  </thead>
+  <tbody id="tbody">
+    <tr><td colspan="4">載入中…</td></tr>
+  </tbody>
+</table>
+
+<div class="refresh" id="refresh">每 60 秒自動更新</div>
+<div class="footer">
+  資料來源：allmyday.com.tw 公開商品 API（sales_amount）<br>
+  此頁僅供參考，實際銷量以官方為準。
+</div>
+
+<script>
+const CSV_URL = "allmyday_yesung.csv";
+
+function parseCSV(text) {
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(",");
+  return lines.slice(1).map(line => {
+    const cols = line.split(",");
+    const obj = {};
+    headers.forEach((h, i) => obj[h.trim()] = (cols[i] || "").trim());
+    return obj;
+  });
+}
+
+function fmt(n) {
+  if (n === "" || n === null || isNaN(n)) return "-";
+  return Number(n).toLocaleString("zh-TW");
+}
+
+function render(rows) {
+  if (!rows.length) {
+    document.getElementById("sub").textContent = "尚無資料，等待第一次抓取…";
+    return;
+  }
+
+  const last = rows[rows.length - 1];
+  const prev = rows.length >= 2 ? rows[rows.length - 2] : null;
+
+  const lastSales = Number(last.sales_amount || 0);
+  const prevSales = prev ? Number(prev.sales_amount || 0) : lastSales;
+  const delta = lastSales - prevSales;
+
+  document.getElementById("title").textContent = last.title || last.name || "應募銷量記錄";
+  document.getElementById("sub").textContent = "最後更新：" + last.time;
+  document.getElementById("sales").textContent = fmt(lastSales);
+  document.getElementById("delta").textContent = (delta > 0 ? "+" : "") + fmt(delta);
+  document.getElementById("delta").className = "value " + (delta > 0 ? "blue" : "");
+  document.getElementById("count").textContent = rows.length;
+
+  const now = new Date();
+  const end = last.delisting_at ? new Date(last.delisting_at.replace(" ", "T") + "+08:00") : null;
+  const st = document.getElementById("status");
+  if (end && now > end) {
+    st.innerHTML = '<span class="status end">已截止</span>';
+  } else {
+    st.innerHTML = '<span class="status ok">進行中</span>';
+  }
+
+  const recent = rows.slice(-20).reverse();
+  const tbody = document.getElementById("tbody");
+  tbody.innerHTML = recent.map((r, idx) => {
+    const i = rows.length - 1 - idx;
+    const cur = Number(r.sales_amount || 0);
+    const before = i > 0 ? Number(rows[i - 1].sales_amount || 0) : cur;
+    const d = cur - before;
+    const cls = d > 0 ? "delta-up" : "delta-flat";
+    const dTxt = (d > 0 ? "+" : "") + fmt(d);
+    return `<tr>
+      <td>${r.time}</td>
+      <td class="num">${fmt(cur)}</td>
+      <td class="num ${cls}">${dTxt}</td>
+      <td class="num">${fmt(r.quantity)}</td>
+    </tr>`;
+  }).join("");
+}
+
+async function load() {
+  try {
+    const r = await fetch(CSV_URL + "?t=" + Date.now());
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const txt = await r.text();
+    render(parseCSV(txt));
+    document.getElementById("refresh").textContent =
+      "每 60 秒自動更新 · 上次載入 " + new Date().toLocaleTimeString("zh-TW");
+  } catch (e) {
+    document.getElementById("sub").textContent = "載入失敗：" + e.message;
+  }
+}
+
+load();
+setInterval(load, 60000);
+</script>
+</body>
+</html>
