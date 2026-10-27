@@ -1,0 +1,67 @@
+name: new-fetch-sales
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install requests
+
+      - name: Fetch Data
+        run: |
+          python -c "
+          import requests, csv, os
+          from datetime import datetime, timezone, timedelta
+          
+          url = 'https://allmyday.com.tw/api/product/item/46756ad6feef74d93'
+          headers = {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept': 'application/json',
+              'Referer': 'https://allmyday.com.tw/'
+          }
+          
+          try:
+              r = requests.get(url, headers=headers, timeout=15)
+              print('HTTP Status:', r.status_code)
+              r.raise_for_status()
+              data = r.json()
+              p = data.get('data', {}).get('prod', {})
+              if p:
+                  tw = timezone(timedelta(hours=8))
+                  now = datetime.now(tw).strftime('%Y-%m-%d %H:%M:%S')
+                  row = [now, '藝聲 YESUNG', p.get('title', ''), p.get('sales_amount', 0), p.get('quantity', 0), p.get('show_sales_amount', 0), p.get('pre_order', 0), p.get('delisting_at', '')]
+                  
+                  file_exists = os.path.isfile('allmyday_yesung.csv')
+                  with open('allmyday_yesung.csv', 'a', newline='', encoding='utf-8-sig') as f:
+                      w = csv.writer(f)
+                      if not file_exists:
+                          w.writerow(['time','name','title','sales_amount','quantity','show_sales_amount','pre_order','delisting_at'])
+                      w.writerow(row)
+                  print('Success!')
+              else:
+                  print('No data found.')
+          except Exception as e:
+              print('Error:', e)
+          "
+
+      - name: Commit CSV
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: update sales $(date -u +%FT%TZ)" || echo "no changes"
+          git push
